@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Jun 28 08:36:31 2019
+
+@author: LeticiaValle_Mac
+"""
+
+
+from selenium import webdriver
+import time
+from bs4 import BeautifulSoup
+import pandas as pd
+
+reviews = []
+rating_new = []
+comments = []
+rating_new = []
+com_sen = []
+
+options = webdriver.ChromeOptions()
+options.add_argument('--ignore-certificate-errors')
+options.add_argument('--incognito')
+options.add_argument('--headless')
+
+#caminho do webdriver.Chrome no seu PC
+driver = webdriver.Chrome("/Users/LeticiaValle_Mac/Documents/UnB Pós Graduação/UnB_1:2019/Estudo dirigido II/chromedriver", chrome_options=options)
+
+
+
+
+def get_comments_selenium(URL_base, firstPage_URL, before_URL, after_URL):
+    
+    for num in range(num_pags):
+        if (num == 0):
+                
+            driver.get(firstPage_URL)
+        if (num != 0):
+            driver.get(URL_base + before_URL +str(num*5)+ after_URL)               
+    
+        more_buttons = driver.find_elements_by_class_name("ExpandableReview__cta--2mR2g")
+        
+        for x in range(len(more_buttons)):
+          if more_buttons[x].is_displayed():
+              print('oi')
+              driver.execute_script("arguments[0].click();", more_buttons[x])
+              time.sleep(1)
+        page_source = driver.page_source
+        
+        
+        soup = BeautifulSoup(page_source, 'lxml')
+        
+                        
+        
+        reviews_selector = soup.find_all('q', class_='location-review-review-list-parts-ExpandableReview__reviewText--gOmRC')
+        for rev in range(len(reviews_selector)):
+            comment = reviews_selector[rev].getText()
+            reviews.append(comment)
+            
+        rating_selector= soup.find_all("div", class_='location-review-review-list-parts-RatingLine__bubbles--GcJvM')
+         
+        
+        # Usa Regex para pegar a string rating
+        for rat in range(len(rating_selector)):
+            ui_bubble = str(rating_selector[rat].find_all('span'))
+            bubble = ui_bubble.split()[2].split('"')
+            val = int(bubble[0].split("_")[1])/10
+            rating_new.append(val)
+            
+            if rating_new[rat] <= 2:
+                com_sen.append('Negativo')
+            else:
+                com_sen.append('Positivo')
+            
+    comments = pd.Series([x for x in reviews if x], name='comments')
+    rating = pd.Series([x for x in rating_new if x], name='rating')   
+    sentiment = pd.Series(com_sen, name='sentiment')
+    
+    comments_as_df = pd.concat([comments,rating,sentiment], axis=1)
+    return comments_as_df
+
+
+if __name__ == "__main__":
+     
+    
+    num_pags = 10
+    
+    URL_base = 'http://www.tripadvisor.com.br'
+    firstPage_URL= "https://www.tripadvisor.com.br/Airline_Review-d8729003-Reviews-Air-France/"
+    before_URL = '/Airline_Review-d8729003-Reviews-or'
+    after_URL = '-Air-France#REVIEWS/'
+    
+    comments_as_df = get_comments_selenium(URL_base, firstPage_URL, before_URL, after_URL)
+            
+    export_csv = comments_as_df.to_csv ('dataframe.csv', index = None, header=True) #Don't forget to add '.csv' at the end of the path
+ 
