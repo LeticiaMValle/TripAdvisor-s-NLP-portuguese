@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jul  2 09:14:13 2019
+
+@author: LeticiaValle_Mac
+"""
+
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Jun 14 16:34:30 2019
+
+@author: LeticiaValle_Mac
+"""
+
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Jun 14 15:30:19 2019
+
+@author: LeticiaValle_Mac
+"""
+#num_pags = 20
+csv_name = "reviews_tripadvisor.csv"
+import numpy as np
+import nltk
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve, auc
+import pandas as pd
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn import metrics
+from sklearn.model_selection import cross_val_predict
+from comments_new import get_comments
+from sklearn.pipeline import Pipeline
+from pre_processing import pre_process
+from pre_processing import get_stop_words
+from sklearn.model_selection import train_test_split
+
+nltk.download('stopwords')
+nltk.download('rslp')
+
+positive_com = []
+negative_com = []
+positive_tags = []
+negative_tags = []
+
+def Stemming(instancia):
+    stemmer = nltk.stem.RSLPStemmer()
+    palavras = []
+    for w in instancia.split():
+        palavras.append(stemmer.stem(w))
+    return (" ".join(palavras))
+
+def marque_negacao(texto):
+    negacoes = ['não','nao', 'not']
+    negacao_detectada = False
+    resultado = []
+    palavras = texto.split()
+    for p in palavras:
+        p = p.lower()
+        if negacao_detectada == True:
+            p = p + '_NEG'
+        if p in negacoes:
+            negacao_detectada = True
+        resultado.append(p)
+    return (" ".join(resultado))
+
+
+
+if __name__ == "__main__":
+        
+    # Carrega as stop-words
+    stopwords = get_stop_words("stopwords_PT.txt")
+    
+    # Equaliza o tamanho das features negativas e positivas
+    list_comments = get_comments(csv_name) 
+    for num in range(len(list_comments)):
+        if list_comments['sentiment'][num] == 'Positivo':
+            positive_com.append(list_comments['Text_select'][num])
+            positive_tags.append(1)
+            
+        if list_comments['sentiment'][num] == 'Negativo':
+            negative_com.append(list_comments['Text_select'][num])
+            negative_tags.append(2)
+            
+    min_size = min(len(positive_com),len(negative_com))
+    positive_com = positive_com[:min_size+50]
+    negative_com = negative_com[:min_size+50]
+    positive_tags = positive_tags[:min_size+50]
+    negative_tags = negative_tags[:min_size+50]
+    
+    com_list = positive_com + negative_com
+    tag_list = positive_tags + negative_tags
+    
+    comments = pd.Series([x for x in com_list if x], name='comments')
+    tags = pd.Series([x for x in tag_list if x], name='tags') 
+        
+    comments_as_df = pd.concat([comments,tags], axis=1)
+    comments_as_df = comments_as_df.reindex(np.random.permutation(comments_as_df.index))
+    
+    
+     # Busca os comentarios como dataframe
+    
+    coments_list = comments_as_df['comments'].apply(lambda x:pre_process(x))
+    sentiment_list = comments_as_df['tags']
+    
+    
+    #############   MODELO COM PIPELINES ########
+    pipeline_simples = Pipeline([
+      ('counts', CountVectorizer()),
+      ('classifier', MultinomialNB())
+    ])
+        
+    pipeline_negacoes = Pipeline([
+      ('counts', CountVectorizer(tokenizer=lambda text: marque_negacao(text))),
+      ('classifier', MultinomialNB())
+    ])    
+    
+    pipeline_simples.fit(coments_list,sentiment_list)
+    pipeline_simples.steps
+    pipeline_negacoes.fit(coments_list,sentiment_list)
+    pipeline_negacoes.steps
+    
+    
+    #################  Validando os Modelos com Validação Cruzada
+    
+    ################   Modelo SEM a Tag de Negações
+    pred_results = cross_val_predict(pipeline_simples, coments_list, sentiment_list, cv=10)
+    metrics.accuracy_score(sentiment_list,pred_results)
+    sentimento=[1,2]
+    fpr_1st, tpr_1st, thresholds_1st = metrics.roc_curve(sentiment_list,pred_results, pos_label=2)
+    
+    print('\n')
+    print(' ###########  Modelo SEM a Tag de Negações  ###########')
+    print (metrics.classification_report(sentiment_list,pred_results,sentimento))
+    print (pd.crosstab(sentiment_list, pred_results, rownames=['Real'], colnames=['Predito'], margins=True))
+    
+    roc_auc_1st = auc(fpr_1st, tpr_1st)
+    
+    
+    
+    ################   Modelo COM a Tag de Negações
+    pred_results = cross_val_predict(pipeline_negacoes,coments_list, sentiment_list, cv=10)
+    metrics.accuracy_score(sentiment_list,pred_results)
+    sentimento=[1,2]
+    fpr_2nd, tpr_2nd, thresholds_2nd = metrics.roc_curve(sentiment_list,pred_results, pos_label=2)
+    
+    print('\n')
+    print(' ###########  Modelo COM a Tag de Negações  ###########')
+    print (metrics.classification_report(sentiment_list,pred_results,sentimento))
+    print (pd.crosstab(sentiment_list, pred_results, rownames=['Real'], colnames=['Predito'], margins=True))
+    
+    roc_auc_2nd = auc(fpr_2nd, tpr_2nd)
+    
+    
+    #################  Avaliando modelo com Bigrams
+    
+    vectorizer = CountVectorizer(ngram_range=(1,2),stop_words=stopwords)
+    freq_tweets = vectorizer.fit_transform(coments_list)
+    modelo = MultinomialNB()
+    modelo.fit(freq_tweets,sentiment_list)
+    
+    pred_results = cross_val_predict(modelo, freq_tweets, sentiment_list, cv=10)
+    metrics.accuracy_score(sentiment_list,pred_results)
+    sentimento=[1,2]
+    fpr_3rd, tpr_3rd, thresholds_3rd = metrics.roc_curve(sentiment_list, pred_results, pos_label=2)
+    
+    print('\n')
+    print(' ###########  Modelo COM bigrams  ###########')
+    print (metrics.classification_report(sentiment_list,pred_results,sentimento))
+    print (pd.crosstab(sentiment_list, pred_results, rownames=['Real'], colnames=['Predito'], margins=True))
+    roc_auc_3rd = metrics.auc(fpr_3rd, tpr_3rd)
+    plt.figure()
+    plt.plot(fpr_1st, tpr_1st, color='red', lw=1, label='Naive Bayes (area = %0.2f)' % roc_auc_1st)
+    plt.plot(fpr_2nd, tpr_2nd, color='darkgreen', lw=1, label='Naive Bayes with neg tags (area = %0.2f)' % roc_auc_2nd)
+    plt.plot(fpr_3rd, tpr_3rd, color='darkorange', lw=1, label='Naive Bayes with bigram (area = %0.2f)' % roc_auc_3rd)
+    plt.plot([0, 1], [0, 1], color='navy',  linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC curve')
+    plt.legend(loc="lower right")
+    plt.draw()
+    plt.savefig('ROC_curve.png',dpi=400)
+    plt.show()
